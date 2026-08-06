@@ -132,7 +132,7 @@ fn editor_style_overlay_applies_ranges() {
     let style_at = |index: usize| {
         Cluster::from_byte_index(layout, index)
             .unwrap()
-            .style()
+            .first_style()
             .clone()
     };
     assert!(style_at(0).underline.is_some());
@@ -175,7 +175,7 @@ fn editor_style_overlay_preedit_underline_wins() {
     let style_at = |index: usize| {
         Cluster::from_byte_index(layout, index)
             .unwrap()
-            .style()
+            .first_style()
             .clone()
     };
     // Preedit occupies bytes 0..2 and must keep its underline.
@@ -200,7 +200,7 @@ fn editor_style_overlay_survives_edits() {
     {
         let mut drv = env.driver(&mut editor);
         let layout = drv.layout();
-        let style = Cluster::from_byte_index(layout, 0).unwrap().style().clone();
+        let style = Cluster::from_byte_index(layout, 0).unwrap().first_style().clone();
         assert!(style.underline.is_none());
     }
     // A fresh, aligned overlay applies again.
@@ -210,7 +210,7 @@ fn editor_style_overlay_survives_edits() {
     assert!(
         Cluster::from_byte_index(layout, 0)
             .unwrap()
-            .style()
+            .first_style()
             .underline
             .is_some()
     );
@@ -233,7 +233,7 @@ fn editor_style_overlay_clamps_out_of_bounds() {
     let style_at = |index: usize| {
         Cluster::from_byte_index(layout, index)
             .unwrap()
-            .style()
+            .first_style()
             .clone()
     };
     assert!(style_at(1).underline.is_none());
