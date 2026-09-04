@@ -40,6 +40,9 @@ pub struct Analysis {
     /// Empty if the text is all LTR.
     pub(crate) levels: Vec<BidiLevel>,
 
+    /// Bidi level for each inline object, parallel to `AnalysisOptions::inline_objects`.
+    pub(crate) object_levels: Vec<BidiLevel>,
+
     /// The base bidi level of the paragraph of text.
     pub(crate) paragraph_level: BidiLevel,
 }
@@ -57,6 +60,7 @@ impl Analysis {
     pub(crate) fn clear(&mut self) {
         self.info.clear();
         self.levels.clear();
+        self.object_levels.clear();
         self.paragraph_level = BidiLevel::new(0);
     }
 
@@ -72,6 +76,20 @@ impl Analysis {
     #[inline(always)]
     pub fn bidi_levels(&self) -> &[BidiLevel] {
         &self.levels
+    }
+
+    /// The bidi level resolved for each inline object, parallel to
+    /// [`AnalysisOptions::inline_objects`].
+    ///
+    /// Each object is resolved as the U+FFFC OBJECT REPLACEMENT CHARACTER that
+    /// [UAX #9 § 3.2][uax9-types] specifies it is represented by. Unlike [`Self::bidi_levels`],
+    /// this is never empty when objects were given: an object in all-LTR text resolves to the
+    /// paragraph level.
+    ///
+    /// [uax9-types]: https://www.unicode.org/reports/tr9/#Bidirectional_Character_Types
+    #[inline(always)]
+    pub fn inline_object_levels(&self) -> &[BidiLevel] {
+        &self.object_levels
     }
 
     /// The base bidi level of the paragraph of text.
@@ -448,11 +466,22 @@ pub(crate) fn analyze_text(
         }
     }
 
+    debug_assert!(
+        options.inline_objects.is_sorted(),
+        "`AnalysisOptions::inline_objects` must be sorted ascending"
+    );
+    debug_assert!(
+        options
+            .inline_objects
+            .iter()
+            .all(|&offset| text.is_char_boundary(offset)),
+        "`AnalysisOptions::inline_objects` must lie on character boundaries of the text"
+    );
+
+    let data_sources = AnalysisDataSources::new();
+
     if text.is_empty() {
-        analyzer
-            .bidi
-            .resolve(core::iter::empty(), options.base_direction);
-        analysis.paragraph_level = analyzer.bidi.base_level();
+        resolve_bidi(analyzer, analysis, text, options, &data_sources);
         return;
     }
 
@@ -467,8 +496,6 @@ pub(crate) fn analyze_text(
 
     let mut global_offset = 0;
     let mut line_boundary_positions: Vec<usize> = Vec::new();
-
-    let data_sources = AnalysisDataSources::new();
 
     for (substring_index, (substring, word_break_strength, last)) in
         contiguous_word_break_substrings.enumerate()
@@ -680,6 +707,65 @@ pub(crate) fn analyze_text(
         );
 
     if needs_bidi_resolution || options.base_direction == BaseDirection::Rtl {
+        resolve_bidi(analyzer, analysis, text, options, &data_sources);
+    } else {
+        // The paragraph is entirely left-to-right, which `Analysis::levels` represents by staying
+        // empty. The objects' levels are reported explicitly, so they have to be filled in.
+        analysis
+            .object_levels
+            .resize(options.inline_objects.len(), analysis.paragraph_level);
+    }
+}
+
+/// The text's characters and the inline objects positioned within it, in the order in which they
+/// occur in the character stream the bidirectional algorithm is applied to.
+///
+/// Yields `Some((char_index, ch))` for a character of `text`, where `char_index` is its index into
+/// [`Analysis::char_info`], and `None` for an inline object. An object positioned at a character's
+/// byte offset precedes that character; objects positioned at the end of the text come last, as do
+/// any whose offset exceeds it. Every entry of `object_offsets` is yielded exactly once.
+fn characters_and_objects<'a>(
+    text: &'a str,
+    object_offsets: &'a [usize],
+) -> impl Iterator<Item = Option<(usize, char)>> + 'a {
+    let text_len = text.len();
+    let mut characters = text.char_indices().enumerate().peekable();
+    let mut objects = object_offsets.iter().copied().peekable();
+    core::iter::from_fn(move || {
+        // Once the characters run out, every object still pending belongs at the end whatever its
+        // offset. An offset past the end of the text breaks the contract documented on
+        // `AnalysisOptions::inline_objects` and is caught by a `debug_assert!` in `analyze_text`,
+        // but draining here keeps the number of objects yielded equal to `inline_objects.len()`
+        // unconditionally. Both the resolver's input stream and the level-splitting loop call this
+        // function, so they stay in step and a release build degrades to "at the end" rather than
+        // silently returning fewer levels than there are objects.
+        let (exhausted, next_offset) = match characters.peek() {
+            Some(&(_, (offset, _))) => (false, offset),
+            None => (true, text_len),
+        };
+        if objects
+            .next_if(|&offset| exhausted || offset <= next_offset)
+            .is_some()
+        {
+            return Some(None);
+        }
+        characters
+            .next()
+            .map(|(char_index, (_, ch))| Some((char_index, ch)))
+    })
+}
+
+/// Resolve the paragraph's bidi levels over the text's characters and the inline objects
+/// positioned within it, writing the characters' levels to [`Analysis::bidi_levels`] and the
+/// objects' to [`Analysis::inline_object_levels`].
+fn resolve_bidi(
+    analyzer: &mut Analyzer,
+    analysis: &mut Analysis,
+    text: &str,
+    options: &AnalysisOptions<'_>,
+    data_sources: &AnalysisDataSources,
+) {
+    if options.inline_objects.is_empty() {
         analyzer.bidi.resolve(
             text.chars().zip(
                 analysis
@@ -690,8 +776,49 @@ pub(crate) fn analyze_text(
             options.base_direction,
         );
         core::mem::swap(&mut analysis.levels, &mut analyzer.bidi.levels);
-        analysis.paragraph_level = analyzer.bidi.base_level();
+    } else {
+        // UAX #9 § 3.2: "for the purpose of the Bidirectional Algorithm, inline objects (such as
+        // graphics) are treated as if they are an U+FFFC OBJECT REPLACEMENT CHARACTER."
+        const OBJECT_REPLACEMENT_CHARACTER: char = '\u{FFFC}';
+        let object = (
+            OBJECT_REPLACEMENT_CHARACTER,
+            (
+                data_sources
+                    .properties(OBJECT_REPLACEMENT_CHARACTER)
+                    .bidi_class(),
+                data_sources.brackets().get(OBJECT_REPLACEMENT_CHARACTER),
+            ),
+        );
+
+        analyzer.bidi.resolve(
+            characters_and_objects(text, options.inline_objects).map(|entry| match entry {
+                Some((char_index, ch)) => {
+                    let info = &analysis.info[char_index];
+                    (ch, (info.bidi_class, info.bracket))
+                }
+                None => object,
+            }),
+            options.base_direction,
+        );
+
+        // Split the resolved levels apart again: the characters' levels stay parallel to the
+        // text's characters, and the objects' are reported separately.
+        analysis.levels.reserve(analysis.info.len());
+        analysis.object_levels.reserve(options.inline_objects.len());
+        let mut levels = analyzer.bidi.levels.iter().copied();
+        for entry in characters_and_objects(text, options.inline_objects) {
+            let level = levels
+                .next()
+                .expect("`BidiResolver` resolves a level for every character it is given");
+            if entry.is_some() {
+                analysis.levels.push(level);
+            } else {
+                analysis.object_levels.push(level);
+            }
+        }
     }
+
+    analysis.paragraph_level = analyzer.bidi.base_level();
 }
 
 /// All characters contribute to shaping except:

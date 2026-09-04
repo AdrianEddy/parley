@@ -28,6 +28,7 @@ mod draw;
 mod editor;
 mod exclusions;
 mod floats;
+mod inline_box_bidi;
 mod issues;
 mod line_break;
 mod linebreaking_matches_chrome;

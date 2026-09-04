@@ -24,6 +24,10 @@ This release has an [MSRV] of 1.88.
 
 - `Collection::family_ids` to iterate over unique font family identifiers. ([#725][] by [@tomcur][])
 
+#### Parley Engine
+
+- `AnalysisOptions::inline_objects` and `Analysis::inline_object_levels` to include inline objects in bidirectional resolution as the U+FFFC OBJECT REPLACEMENT CHARACTER they are represented by ([UAX #9 § 3.2](https://www.unicode.org/reports/tr9/#Bidirectional_Character_Types)). Only bidirectional resolution is affected; line, word and grapheme segmentation see the text exactly as given.
+
 #### Parley
 
 - `PlainEditor::{edit_style_overlay, get_style_overlay}` to apply ranged style overrides on top of the default styles, e.g. for syntax highlighting, spellcheck squiggles, or find-match emphasis. ([#730][] by [@AdrianEddy][])
@@ -49,6 +53,7 @@ This release has an [MSRV] of 1.88.
 
 #### Parley
 
+- In-flow inline boxes now take the bidirectional embedding level resolved for them, instead of inheriting the preceding shaped run's level (or level 0 when there is no preceding run). A box at the logical start of a right-to-left paragraph was placed at the wrong end of the line. A line containing only inline boxes is now reordered as well.
 - Applying letter spacing now stops optional ligatures from forming. ([#731][] by [@tomcur][])
 
 #### Fontique

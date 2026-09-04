@@ -329,6 +329,10 @@ fn build_into_layout<B: Brush>(
         "at least one style run is required"
     );
 
+    // Sort the inline boxes as subsequent code assumes that they are in text index order.
+    // Note: It's important that this is a stable sort to allow users to control the order of contiguous inline boxes
+    lcx.inline_boxes.sort_by_key(|b| b.index);
+
     crate::analysis::analyze_text(
         lcx,
         text,
@@ -357,10 +361,6 @@ fn build_into_layout<B: Brush>(
         .data
         .styles
         .extend(lcx.style_table.iter().map(|s| s.as_layout_style()));
-
-    // Sort the inline boxes as subsequent code assumes that they are in text index order.
-    // Note: It's important that this is a stable sort to allow users to control the order of contiguous inline boxes
-    lcx.inline_boxes.sort_by_key(|b| b.index);
 
     {
         super::shape::shape_text(

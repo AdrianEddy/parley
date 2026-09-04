@@ -12,7 +12,7 @@ use smallvec::SmallVec;
 use super::layout::Layout;
 use super::resolve::{ResolveContext, ResolvedStyle};
 use super::style::{Brush, FontFeature, FontVariation};
-use crate::inline_box::InlineBox;
+use crate::inline_box::{InlineBox, InlineBoxKind};
 use crate::util::{nearly_eq, nearly_zero};
 use crate::{FontContext, FontData};
 
@@ -60,12 +60,28 @@ pub(crate) fn shape_text<'a, B: Brush>(
         text = " ";
     }
 
+    // Each in-flow box takes the bidi level resolved for the U+FFFC OBJECT REPLACEMENT CHARACTER
+    // it is represented by (UAX #9 § 3.2), in the order the boxes appear in the text. Out-of-flow
+    // boxes take no part in bidi resolution: they are positioned as if they were zero-sized, so
+    // they simply take the level of the text they are positioned within.
+    let object_levels = analysis.inline_object_levels();
+    let mut object_ordinal = 0_usize;
+    let mut box_bidi_level = |inline_box: &InlineBox, surrounding_level: BidiLevel| {
+        if inline_box.kind != InlineBoxKind::InFlow {
+            return surrounding_level;
+        }
+        let level = object_levels[object_ordinal];
+        object_ordinal += 1;
+        level
+    };
+
     // Do nothing if there is no text or styles (there should always be a default style)
     if text.is_empty() || styles.is_empty() {
         // Process any remaining inline boxes whose index is greater than the length of the text
-        for box_idx in 0..inline_boxes.len() {
+        for (box_idx, inline_box) in inline_boxes.iter().enumerate() {
             // Push the box to the list of items
-            layout.data.push_inline_box(box_idx, BidiLevel::new(0));
+            let bidi_level = box_bidi_level(inline_box, BidiLevel::new(0));
+            layout.data.push_inline_box(box_idx, bidi_level);
         }
         return;
     }
@@ -197,10 +213,6 @@ pub(crate) fn shape_text<'a, B: Brush>(
         let run_style = &styles[usize::from(run_style_index)];
 
         // Push inline boxes positioned before the start of this item.
-        //
-        // TODO: this lets the inline box take the bidi level of the previous run, but in principle
-        // inline boxes should be included in bidi analysis as an object replacement character
-        // (U+FFFC). The box should then take the bidi level of that character.
         let prev_bidi_level = if shaped_run_idx > 0 {
             layout.data.shaped_text.runs()[&shaped_run_idx - 1].bidi_level
         } else {
@@ -208,7 +220,8 @@ pub(crate) fn shape_text<'a, B: Brush>(
         };
         while let Some((box_idx, inline_box)) = inline_box_iter.peek() {
             if inline_box.index <= run_text_byte_start {
-                layout.data.push_inline_box(*box_idx, prev_bidi_level);
+                let bidi_level = box_bidi_level(inline_box, prev_bidi_level);
+                layout.data.push_inline_box(*box_idx, bidi_level);
                 inline_box_iter.next();
             } else {
                 break;
@@ -230,18 +243,25 @@ pub(crate) fn shape_text<'a, B: Brush>(
 
     // Process any remaining inline boxes whose index is greater than the length of the text
     //
-    // Give the box the same bidi level as the last text run (or else default to 0 if there is no
-    // text run).
-    let bidi_level = layout
+    // An out-of-flow box takes the same bidi level as the last text run (or else defaults to 0 if
+    // there is no text run).
+    let last_run_bidi_level = layout
         .data
         .shaped_text
         .runs()
         .last()
         .map(|r| r.bidi_level)
         .unwrap_or(BidiLevel::new(0));
-    for (box_idx, _inline_box) in inline_box_iter {
+    for (box_idx, inline_box) in inline_box_iter {
+        let bidi_level = box_bidi_level(inline_box, last_run_bidi_level);
         layout.data.push_inline_box(box_idx, bidi_level);
     }
+
+    debug_assert_eq!(
+        object_ordinal,
+        object_levels.len(),
+        "every in-flow inline box must consume exactly one resolved inline object level"
+    );
 }
 
 /// The font to use if a font query doesn't return any font candidates at all.

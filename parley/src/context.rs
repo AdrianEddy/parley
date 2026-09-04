@@ -32,6 +32,9 @@ pub struct LayoutContext<B: Brush = [u8; 4]> {
     pub(crate) analyzer: Analyzer,
     pub(crate) analysis: Analysis,
     pub(crate) word_break: Vec<(Range<usize>, WordBreak)>,
+    /// Byte offsets of the in-flow inline boxes, passed to analysis as
+    /// [`AnalysisOptions::inline_objects`](parley_engine::AnalysisOptions::inline_objects).
+    pub(crate) inline_object_offsets: Vec<usize>,
 
     // Reusable style builders (to amortise allocations)
     pub(crate) ranged_style_builder: RangedStyleBuilder<B>,
@@ -55,6 +58,7 @@ impl<B: Brush> LayoutContext<B> {
             analyzer: Analyzer::new(),
             analysis: Analysis::new(),
             word_break: Vec::new(),
+            inline_object_offsets: Vec::new(),
             ranged_style_builder: RangedStyleBuilder::default(),
             tree_style_builder: TreeStyleBuilder::default(),
             char_style_indices: vec![],

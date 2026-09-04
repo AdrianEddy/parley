@@ -56,6 +56,30 @@ pub struct AnalysisOptions<'a> {
     ///
     /// See [`LineBreakOverrideFn`] for more details.
     pub line_break_override: Option<&'a LineBreakOverrideFn>,
+
+    /// The byte offsets of inline objects positioned within the text.
+    ///
+    /// An inline object is a non-textual atomic item that flows with the text, such as an image
+    /// or an inline-block box. Per [UAX #9 § 3.2][uax9-types], "for the purpose of the
+    /// Bidirectional Algorithm, inline objects (such as graphics) are treated as if they are an
+    /// U+FFFC OBJECT REPLACEMENT CHARACTER" — a neutral (`ON`) character. Each offset given here
+    /// is analyzed as if that character were present at it, so the objects take part in
+    /// bidirectional resolution both as characters in their own right — their resolved levels are
+    /// reported by [`Analysis::inline_object_levels`] — and as context for the surrounding text.
+    ///
+    /// Only bidirectional resolution is affected. The objects take no part in line, word or
+    /// grapheme segmentation, which see the text exactly as given. Correspondingly, the text
+    /// itself does not contain the object replacement characters, so [`Analysis::char_info`] and
+    /// [`Analysis::bidi_levels`] remain parallel to the text's characters.
+    ///
+    /// Offsets must be sorted ascending, must lie on character boundaries of the text, and must
+    /// not exceed the text's length. Repeated offsets denote multiple objects at the same position.
+    /// Violations are caught by a `debug_assert!`; a release build resolves an out-of-range object
+    /// as though it sat at the end of the text, so that [`Analysis::inline_object_levels`] always
+    /// reports exactly one level per object.
+    ///
+    /// [uax9-types]: https://www.unicode.org/reports/tr9/#Bidirectional_Character_Types
+    pub inline_objects: &'a [usize],
 }
 
 impl core::fmt::Debug for AnalysisOptions<'_> {
@@ -63,6 +87,7 @@ impl core::fmt::Debug for AnalysisOptions<'_> {
         f.debug_struct("AnalysisOptions")
             .field("base_direction", &self.base_direction)
             .field("word_break", &self.word_break)
+            .field("inline_objects", &self.inline_objects)
             .finish_non_exhaustive()
     }
 }

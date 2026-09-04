@@ -1155,6 +1155,14 @@ impl<'a, B: Brush> BreakLines<'a, B> {
                     if item.kind == InlineBoxKind::InFlow {
                         // Mark us as having seen non-whitespace content on this line
                         have_metrics = true;
+
+                        // An in-flow box carries the level resolved for the U+FFFC that stands in
+                        // for it (UAX #9 3.2), so it raises the reorder flag exactly as a text run
+                        // does. Without this a line whose only items are boxes keeps them in
+                        // logical order, because the flag was raised solely from the text arm.
+                        if line_item.bidi_level != BidiLevel::new(0) {
+                            needs_reorder = true;
+                        }
                     }
                 }
                 LayoutItemKind::TextRun => {
