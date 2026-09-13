@@ -12,7 +12,7 @@ use peniko::{Blob, color::palette};
 use super::utils::{ColorBrush, asserts::assert_eq_layout_data};
 use crate::{
     BaseDirection, FontContext, FontFamily, FontFeatures, FontVariations, Layout, LayoutContext,
-    LineHeight, OverflowWrap, RangedBuilder, StyleProperty, StyleRunBuilder, TextStyle,
+    LineHeight, OverflowWrap, PlainEditor, RangedBuilder, StyleProperty, StyleRunBuilder, TextStyle,
     TextWrapMode, TreeBuilder, WordBreak,
 };
 
@@ -176,6 +176,34 @@ fn builders_apply_base_direction() {
         &ranged_layout.data,
         &style_run_layout.data,
         "style-run base direction",
+    );
+}
+
+#[test]
+fn plain_editor_applies_base_direction() {
+    let text = "123 / 456";
+    let mut fcx = create_font_context();
+    let mut lcx: LayoutContext<ColorBrush> = LayoutContext::new();
+
+    let mut editor: PlainEditor<ColorBrush> = PlainEditor::new(16.0);
+    editor
+        .edit_styles()
+        .insert(StyleProperty::FontFamily(FontFamily::from(FONT_FAMILY_LIST)));
+    editor.set_text(text);
+
+    // The default is `Auto`, which for neutral-only text infers left-to-right.
+    assert!(!editor.layout(&mut fcx, &mut lcx).is_rtl());
+
+    editor.set_base_direction(BaseDirection::Rtl);
+    let layout = editor.layout(&mut fcx, &mut lcx);
+    assert!(layout.is_rtl());
+    assert_eq!(
+        layout
+            .lines()
+            .flat_map(|line| line.runs())
+            .map(|run| run.text_range())
+            .collect::<Vec<_>>(),
+        [6..9, 3..6, 0..3]
     );
 }
 

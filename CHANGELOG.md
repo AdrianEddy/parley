@@ -31,6 +31,7 @@ This release has an [MSRV] of 1.88.
 #### Parley
 
 - `PlainEditor::{edit_style_overlay, get_style_overlay}` to apply ranged style overrides on top of the default styles, e.g. for syntax highlighting, spellcheck squiggles, or find-match emphasis. ([#730][] by [@AdrianEddy][])
+- `PlainEditor::set_base_direction` to set the paragraph base direction of an editor's layout, as `RangedBuilder`, `TreeBuilder` and `StyleRunBuilder` already allow. The default remains `BaseDirection::Auto`.
 
 ### Changed
 

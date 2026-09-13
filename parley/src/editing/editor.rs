@@ -15,7 +15,7 @@ use core::{
 use crate::editing::{Cursor, Selection};
 use crate::layout::{Affinity, Alignment, AlignmentOptions, Layout};
 use crate::style::Brush;
-use crate::{BoundingBox, FontContext, LayoutContext, StyleProperty, StyleSet};
+use crate::{BaseDirection, BoundingBox, FontContext, LayoutContext, StyleProperty, StyleSet};
 
 #[cfg(feature = "accesskit")]
 use crate::layout::LayoutAccessibility;
@@ -121,6 +121,7 @@ where
     // linebreak_dirty: bool,
     // alignment_dirty: bool,
     alignment: Alignment,
+    base_direction: BaseDirection,
     generation: Generation,
 }
 
@@ -146,6 +147,7 @@ where
             quantize: true,
             layout_dirty: true,
             alignment: Alignment::Start,
+            base_direction: BaseDirection::Auto,
             // We don't use the `default` value to start with, as our consumers
             // will choose to use that as their initial value, but will probably need
             // to redraw if they haven't already.
@@ -992,6 +994,14 @@ where
         self.layout_dirty = true;
     }
 
+    /// Set the paragraph's base direction.
+    ///
+    /// The default is [`BaseDirection::Auto`], which infers the direction from the text.
+    pub fn set_base_direction(&mut self, base_direction: BaseDirection) {
+        self.base_direction = base_direction;
+        self.layout_dirty = true;
+    }
+
     /// Set the scale for the layout.
     pub fn set_scale(&mut self, scale: f32) {
         self.scale = scale;
@@ -1248,6 +1258,7 @@ where
     fn update_layout(&mut self, font_cx: &mut FontContext, layout_cx: &mut LayoutContext<T>) {
         let mut builder =
             layout_cx.ranged_builder(font_cx, &self.buffer, self.scale, self.quantize);
+        builder.set_base_direction(self.base_direction);
         for prop in self.default_style.inner().values() {
             builder.push_default(prop.to_owned());
         }
